@@ -1,0 +1,272 @@
+# OpenStatus — Coolify variant of upstream docker-compose.yaml
+#
+# Commit this file to the ROOT of your fork of github.com/openstatusHQ/openstatus
+# (build contexts are ".") and point Coolify's "Docker Compose Location" at it.
+#
+# Differences from upstream:
+#   - env_file: .env.docker  →  explicit ${VARS}, so Coolify lists them in its
+#     Environment Variables tab (":?" = required, ":-" = optional/empty).
+#   - container_name / custom network removed (Coolify names + networks resources).
+#   - Host ports removed except three, bound deliberately:
+#       127.0.0.1:18080 → libsql   (one-off SQL: lift workspace limits)
+#       127.0.0.1:7181  → tinybird (tb --local deploy from the host)
+#       3002            → dashboard (LAN-only admin; never give it a public domain)
+#     Upstream's 8080:8080 would collide with Coolify's Traefik dashboard port.
+#   - + probe service (the thing that actually checks your URLs).
+#   The private-location-health cron is a Coolify Scheduled Task, not a service.
+
+x-openstatus-env: &openstatus-env
+  DATABASE_AUTH_TOKEN: ${DATABASE_AUTH_TOKEN:-}
+  UPSTASH_REDIS_REST_URL: ${UPSTASH_REDIS_REST_URL:-http://localhost:6379}
+  UPSTASH_REDIS_REST_TOKEN: ${UPSTASH_REDIS_REST_TOKEN:-placeholder}
+  QSTASH_CURRENT_SIGNING_KEY: ${QSTASH_CURRENT_SIGNING_KEY:-}
+  QSTASH_NEXT_SIGNING_KEY: ${QSTASH_NEXT_SIGNING_KEY:-}
+  QSTASH_TOKEN: ${QSTASH_TOKEN:-}
+  QSTASH_URL: ${QSTASH_URL:-https://qstash.upstash.io/v1/publish/}
+  # Empty on the first deploy; fill both with the SAME `tb --local info` token, redeploy.
+  TINY_BIRD_API_KEY: ${TINY_BIRD_API_KEY:-}
+  TINYBIRD_TOKEN: ${TINYBIRD_TOKEN:-}
+  TINYBIRD_URL: http://tinybird-local:7181
+  # Any placeholder (e.g. re_selfhost). SELF_HOST login never sends mail — the
+  # magic link is printed to the dashboard container logs (">>> Magic Link: ...").
+  RESEND_API_KEY: ${RESEND_API_KEY:?}
+  AUTH_SECRET: ${AUTH_SECRET:?}
+  SELF_HOST: "true"
+  CRON_SECRET: ${CRON_SECRET:?}
+  SUPER_ADMIN_TOKEN: ${SUPER_ADMIN_TOKEN:-}
+  FLY_REGION: self-hosted
+  NODE_ENV: production
+  # Dashboard origin as YOU reach it, e.g. http://192.168.1.50:3002 — magic-link
+  # login emails point here.
+  NEXT_PUBLIC_URL: ${NEXT_PUBLIC_URL:?}
+  DASHBOARD_URL: ${NEXT_PUBLIC_URL:?}
+  OAUTH_ISSUER: ${OAUTH_ISSUER:-http://localhost:3001}
+  TURBO_ENV_MODE: loose
+
+volumes:
+  libsql-data:
+  workflows-data:
+  tinybird-clickhouse-data:
+  tinybird-redis-data:
+
+services:
+  libsql:
+    image: ghcr.io/tursodatabase/libsql-server:latest
+    ports:
+      - "127.0.0.1:18080:8080"
+    volumes:
+      - libsql-data:/var/lib/sqld
+    environment:
+      SQLD_NODE: primary
+      SQLD_MAX_CONCURRENT_CONNECTIONS: "512"
+      SQLD_MAX_CONCURRENT_REQUESTS: "1024"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          'perl -e ''use IO::Socket::INET; exit(IO::Socket::INET->new(PeerAddr=>"127.0.0.1:8080",Timeout=>1) ? 0 : 1);''',
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+  tinybird-local:
+    image: tinybirdco/tinybird-local:latest
+    platform: linux/amd64
+    ports:
+      - "127.0.0.1:7181:7181"
+    environment:
+      COMPATIBILITY_MODE: "1"
+    volumes:
+      - tinybird-clickhouse-data:/var/lib/clickhouse
+      - tinybird-redis-data:/redis-data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:7181/"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+
+  db-migrate:
+    build:
+      context: .
+      dockerfile: packages/db/Dockerfile
+    image: openstatus/db-migrate:latest
+    pull_policy: build
+    environment:
+      <<: *openstatus-env
+      DATABASE_URL: http://libsql:8080
+    depends_on:
+      libsql:
+        condition: service_healthy
+    restart: on-failure:3
+
+  workflows:
+    build:
+      context: .
+      dockerfile: apps/workflows/Dockerfile
+    image: openstatus/workflows:latest
+    volumes:
+      - workflows-data:/app/data
+    environment:
+      <<: *openstatus-env
+      DATABASE_URL: http://libsql:8080
+      PORT: "3000"
+    depends_on:
+      db-migrate:
+        condition: service_completed_successfully
+      libsql:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/ping"]
+      interval: 15s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+  server:
+    build:
+      context: .
+      dockerfile: apps/server/Dockerfile
+    image: openstatus/server:latest
+    environment:
+      <<: *openstatus-env
+      DATABASE_URL: http://libsql:8080
+      PORT: "3000"
+    depends_on:
+      db-migrate:
+        condition: service_completed_successfully
+      workflows:
+        condition: service_healthy
+      libsql:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/ping"]
+      interval: 15s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+  # Ingest server: receives probe results, writes Tinybird, forwards status changes.
+  private-location:
+    build:
+      context: apps/private-location
+      dockerfile: Dockerfile
+    image: openstatus/private-location:latest
+    environment:
+      <<: *openstatus-env
+      DB_URL: http://libsql:8080
+      WORKFLOWS_URL: http://workflows:3000
+      GIN_MODE: release
+      PORT: "8080"
+    depends_on:
+      server:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/health"]
+      interval: 15s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+  # Admin UI — LAN only. Do NOT assign a domain to this service in Coolify.
+  dashboard:
+    build:
+      context: .
+      dockerfile: apps/dashboard/Dockerfile
+    image: openstatus/dashboard:latest
+    ports:
+      - "3002:3000"
+    environment:
+      <<: *openstatus-env
+      DATABASE_URL: http://libsql:8080
+      PORT: "3000"
+      HOSTNAME: 0.0.0.0
+      AUTH_TRUST_HOST: "true"
+    depends_on:
+      db-migrate:
+        condition: service_completed_successfully
+      workflows:
+        condition: service_healthy
+      libsql:
+        condition: service_healthy
+      server:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3000/ || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 3
+      start_period: 45s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+  # Public page — the ONLY service that gets a domain in Coolify (container port 3000).
+  status-page:
+    build:
+      context: .
+      dockerfile: apps/status-page/Dockerfile
+    image: openstatus/status-page:latest
+    environment:
+      <<: *openstatus-env
+      DATABASE_URL: http://libsql:8080
+      PORT: "3000"
+      HOSTNAME: 0.0.0.0
+      AUTH_TRUST_HOST: "true"
+      OPENSTATUS_API_URL: http://server:3000
+    depends_on:
+      db-migrate:
+        condition: service_completed_successfully
+      workflows:
+        condition: service_healthy
+      libsql:
+        condition: service_healthy
+      server:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3000/ || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 3
+      start_period: 45s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+  # Probe: runs the checks. Crash-loops until OPENSTATUS_KEY is set (step 6) — expected.
+  probe:
+    image: ghcr.io/openstatushq/private-location:latest
+    environment:
+      OPENSTATUS_KEY: ${OPENSTATUS_KEY:-}
+      OPENSTATUS_INGEST_URL: http://private-location:8080
+    depends_on:
+      private-location:
+        condition: service_healthy
+    restart: unless-stopped
