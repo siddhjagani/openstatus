@@ -190,7 +190,8 @@ function SimpleTimestamp({
           )}
           {...props}
         >
-          {children || format(new UTCDate(date), "LLL dd, y HH:mm '(UTC)'")}
+          {children ||
+            `${new Date(date).toLocaleString("en-IN", { timeZone: "Asia/Kolkata", day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", hour12: false })} (IST)`}
         </TooltipTrigger>
         <TooltipContent data-slot="status-timestamp-content">
           <p className="font-mono">{format(date, "LLL dd, y HH:mm (z)")}</p>

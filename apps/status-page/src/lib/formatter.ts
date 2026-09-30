@@ -50,7 +50,7 @@ export function formatNumber(
 
 // TODO: think of supporting custom formats
 
-// All status-page timestamps render in UTC for consistency across viewers; the
+// All status-page timestamps render in IST (Asia/Kolkata) for consistency across viewers; the
 // StatusTimestamp hover card surfaces the viewer's local timezone on demand.
 
 export function formatDate(
@@ -63,8 +63,8 @@ export function formatDate(
     month: "long",
     day: "numeric",
     ...rest,
-    // last so callers can't override away from UTC (the "(UTC)" label depends on it)
-    timeZone: "UTC",
+    // last so callers can't override away from IST (the "(IST)" label depends on it)
+    timeZone: "Asia/Kolkata",
   });
 }
 
@@ -74,7 +74,7 @@ export function formatDateTime(date: Date, locale?: string) {
     day: "numeric",
     hour: "numeric",
     minute: "numeric",
-    timeZone: "UTC",
+    timeZone: "Asia/Kolkata",
   });
 }
 
@@ -82,7 +82,7 @@ export function formatTime(date: Date, locale?: string) {
   return date.toLocaleTimeString(locale, {
     hour: "numeric",
     minute: "numeric",
-    timeZone: "UTC",
+    timeZone: "Asia/Kolkata",
   });
 }
 

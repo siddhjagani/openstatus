@@ -14,8 +14,8 @@ import {
   formatDateTime,
 } from "../../lib/formatter";
 
-// Status-page timestamps render in UTC; the suffix tells viewers which zone.
-const withUTC = (value: string) => `${value} (UTC)`;
+// Status-page timestamps render in IST; the suffix tells viewers which zone.
+const withUTC = (value: string) => `${value} (IST)`;
 
 /**
  * StatusBlocksProvider

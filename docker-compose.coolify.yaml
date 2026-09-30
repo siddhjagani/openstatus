@@ -27,6 +27,9 @@ x-openstatus-env: &openstatus-env
   TINY_BIRD_API_KEY: ${TINY_BIRD_API_KEY:-}
   TINYBIRD_TOKEN: ${TINYBIRD_TOKEN:-}
   TINYBIRD_URL: http://tinybird-local:7181
+  # All OpenStatus email goes through the Resend SDK; this points it at the
+  # local email-bridge service, which relays to your SMTP server.
+  RESEND_BASE_URL: http://email-bridge:8025
   # Any placeholder (e.g. re_selfhost). SELF_HOST login never sends mail — the
   # magic link is printed to the dashboard container logs (">>> Magic Link: ...").
   RESEND_API_KEY: ${RESEND_API_KEY:?}
@@ -205,6 +208,8 @@ services:
       PORT: "3000"
       HOSTNAME: 0.0.0.0
       AUTH_TRUST_HOST: "true"
+      # Without this Auth.js builds redirects from the bind address (0.0.0.0:3000).
+      AUTH_URL: ${NEXT_PUBLIC_URL:?}
     depends_on:
       db-migrate:
         condition: service_completed_successfully
@@ -270,3 +275,25 @@ services:
       private-location:
         condition: service_healthy
     restart: unless-stopped
+
+  # Resend-API -> SMTP relay (deploy/resend-smtp-bridge). Rewrites OpenStatus's
+  # hard-coded notifications.openstatus.dev sender to SMTP_FROM_ADDRESS.
+  email-bridge:
+    build:
+      context: deploy/resend-smtp-bridge
+    image: openstatus/email-bridge:latest
+    environment:
+      BRIDGE_TOKEN: ${RESEND_API_KEY:?}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-465}
+      SMTP_SECURITY: ${SMTP_SECURITY:-ssl}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM_ADDRESS: ${SMTP_FROM_ADDRESS:-}
+      SMTP_FROM_NAME: ${SMTP_FROM_NAME:-}
+      SMTP_REPLY_TO: ${SMTP_REPLY_TO:-}
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 64M
