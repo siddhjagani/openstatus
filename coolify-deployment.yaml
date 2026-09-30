@@ -1,132 +1,69 @@
-# Coolify Deployment Configuration
-# This file uses environment variables that can be configured directly in Coolify
+# OpenStatus — Coolify variant of upstream docker-compose.yaml
 #
-# 🔧 REQUIRED: Set these environment variables in Coolify:
-# DATABASE_URL=http://libsql:8080
-# DATABASE_AUTH_TOKEN= (leave empty for local libsql)
-# AUTH_SECRET=your-32-character-secret
-# NEXT_PUBLIC_URL=https://your-domain.com
-# RESEND_API_KEY=your-resend-api-key
+# Commit this file to the ROOT of your fork of github.com/openstatusHQ/openstatus
+# (build contexts are ".") and point Coolify's "Docker Compose Location" at it.
 #
-# 📚 Full Guide: See COOLIFY_ENVIRONMENT_GUIDE.md
-#
-# 🚀 Quick Import URL:
-# https://raw.githubusercontent.com/openstatusHQ/openstatus/main/coolify-deployment.yaml
+# Differences from upstream:
+#   - env_file: .env.docker  →  explicit ${VARS}, so Coolify lists them in its
+#     Environment Variables tab (":?" = required, ":-" = optional/empty).
+#   - container_name / custom network removed (Coolify names + networks resources).
+#   - Host ports removed except three, bound deliberately:
+#       127.0.0.1:18080 → libsql   (one-off SQL: lift workspace limits)
+#       127.0.0.1:7181  → tinybird (tb --local deploy from the host)
+#       3002            → dashboard (LAN-only admin; never give it a public domain)
+#     Upstream's 8080:8080 would collide with Coolify's Traefik dashboard port.
+#   - + probe service (the thing that actually checks your URLs).
+#   The private-location-health cron is a Coolify Scheduled Task, not a service.
 
-version: "3.8"
-
-# Environment variable definitions with defaults
-x-common-variables: &common-env # Database Configuration
-  DATABASE_URL: ${DATABASE_URL:-http://libsql:8080}
+x-openstatus-env: &openstatus-env
   DATABASE_AUTH_TOKEN: ${DATABASE_AUTH_TOKEN:-}
-
-  # Authentication
-  AUTH_SECRET: ${AUTH_SECRET:-default-secret-change-me}
-  NEXT_PUBLIC_URL: ${NEXT_PUBLIC_URL:-http://localhost:3002}
-  SELF_HOST: ${SELF_HOST:-true}
-
-  # OAuth Providers (Optional)
-  AUTH_GITHUB_ID: ${AUTH_GITHUB_ID:-}
-  AUTH_GITHUB_SECRET: ${AUTH_GITHUB_SECRET:-}
-  AUTH_GOOGLE_ID: ${AUTH_GOOGLE_ID:-}
-  AUTH_GOOGLE_SECRET: ${AUTH_GOOGLE_SECRET:-}
-
-  # Email Service
-  RESEND_API_KEY: ${RESEND_API_KEY:-}
-
-  # Analytics (Optional)
-  TINY_BIRD_API_KEY: ${TINY_BIRD_API_KEY:-}
-  TINYBIRD_URL: ${TINYBIRD_URL:-}
-
-  # Redis/Queue (Optional)
   UPSTASH_REDIS_REST_URL: ${UPSTASH_REDIS_REST_URL:-http://localhost:6379}
-  UPSTASH_REDIS_REST_TOKEN: ${UPSTASH_REDIS_REST_TOKEN:-}
+  UPSTASH_REDIS_REST_TOKEN: ${UPSTASH_REDIS_REST_TOKEN:-placeholder}
   QSTASH_CURRENT_SIGNING_KEY: ${QSTASH_CURRENT_SIGNING_KEY:-}
   QSTASH_NEXT_SIGNING_KEY: ${QSTASH_NEXT_SIGNING_KEY:-}
   QSTASH_TOKEN: ${QSTASH_TOKEN:-}
   QSTASH_URL: ${QSTASH_URL:-https://qstash.upstash.io/v1/publish/}
-
-  # Google Cloud (Optional)
-  GCP_PROJECT_ID: ${GCP_PROJECT_ID:-}
-  GCP_LOCATION: ${GCP_LOCATION:-}
-  GCP_CLIENT_EMAIL: ${GCP_CLIENT_EMAIL:-}
-  GCP_PRIVATE_KEY: ${GCP_PRIVATE_KEY:-}
-  CRON_SECRET: ${CRON_SECRET:-}
-
-  # API Keys (Optional)
-  UNKEY_API_ID: ${UNKEY_API_ID:-}
-  UNKEY_TOKEN: ${UNKEY_TOKEN:-}
+  # Empty on the first deploy; fill both with the SAME `tb --local info` token, redeploy.
+  TINY_BIRD_API_KEY: ${TINY_BIRD_API_KEY:-}
+  TINYBIRD_TOKEN: ${TINYBIRD_TOKEN:-}
+  TINYBIRD_URL: http://tinybird-local:7181
+  # Any placeholder (e.g. re_selfhost). SELF_HOST login never sends mail — the
+  # magic link is printed to the dashboard container logs (">>> Magic Link: ...").
+  RESEND_API_KEY: ${RESEND_API_KEY:?}
+  AUTH_SECRET: ${AUTH_SECRET:?}
+  SELF_HOST: "true"
+  CRON_SECRET: ${CRON_SECRET:?}
   SUPER_ADMIN_TOKEN: ${SUPER_ADMIN_TOKEN:-}
-  FLY_REGION: ${FLY_REGION:-self-hosted}
-
-  # Stripe (Optional)
-  STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
-  STRIPE_WEBHOOK_SECRET_KEY: ${STRIPE_WEBHOOK_SECRET_KEY:-}
-  NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: ${NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY:-}
-
-  # Vercel (Optional)
-  PROJECT_ID_VERCEL: ${PROJECT_ID_VERCEL:-}
-  TEAM_ID_VERCEL: ${TEAM_ID_VERCEL:-}
-  VERCEL_AUTH_BEARER_TOKEN: ${VERCEL_AUTH_BEARER_TOKEN:-}
-  BLOB_READ_WRITE_TOKEN: ${BLOB_READ_WRITE_TOKEN:-}
-
-  # Observability (Optional)
-  NEXT_PUBLIC_SENTRY_DSN: ${NEXT_PUBLIC_SENTRY_DSN:-}
-  SENTRY_AUTH_TOKEN: ${SENTRY_AUTH_TOKEN:-}
-  NEXT_PUBLIC_OPENPANEL_CLIENT_ID: ${NEXT_PUBLIC_OPENPANEL_CLIENT_ID:-}
-  OPENPANEL_CLIENT_SECRET: ${OPENPANEL_CLIENT_SECRET:-}
-  PAGERDUTY_APP_ID: ${PAGERDUTY_APP_ID:-}
-  SLACK_SUPPORT_WEBHOOK_URL: ${SLACK_SUPPORT_WEBHOOK_URL:-}
-  TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
-
-  # External Services
-  OPENSTATUS_INGEST_URL: ${OPENSTATUS_INGEST_URL:-https://openstatus-private-location.fly.dev}
-  SCREENSHOT_SERVICE_URL: ${SCREENSHOT_SERVICE_URL:-}
-
-  # Development & Testing
-  TURBO_ENV_MODE: ${TURBO_ENV_MODE:-loose}
-  PLAYGROUND_UNKEY_API_KEY: ${PLAYGROUND_UNKEY_API_KEY:-}
-  WORKSPACES_HIDE_URL: ${WORKSPACES_HIDE_URL:-}
-
-  # Common Settings
-  NODE_ENV: ${NODE_ENV:-production}
-  ENCRYPTION_KEY: ${ENCRYPTION_KEY:-default-encryption-key}
-
-x-service-variables: &service-env
-  <<: *common-env
-  PORT: ${PORT:-3000}
-
-networks:
-  openstatus:
-    driver: bridge
-    name: openstatus
+  FLY_REGION: self-hosted
+  NODE_ENV: production
+  # Dashboard origin as YOU reach it, e.g. http://192.168.1.50:3002 — magic-link
+  # login emails point here.
+  NEXT_PUBLIC_URL: ${NEXT_PUBLIC_URL:?}
+  DASHBOARD_URL: ${NEXT_PUBLIC_URL:?}
+  OAUTH_ISSUER: ${OAUTH_ISSUER:-http://localhost:3001}
+  TURBO_ENV_MODE: loose
 
 volumes:
   libsql-data:
-    name: openstatus-libsql-data
   workflows-data:
-    name: openstatus-workflows-data
+  tinybird-clickhouse-data:
+  tinybird-redis-data:
 
 services:
-  # External Dependencies
   libsql:
     image: ghcr.io/tursodatabase/libsql-server:latest
-    container_name: openstatus-libsql
-    networks:
-      - openstatus
     ports:
-      - "8085:8080"
-      - "5001:5001"
+      - "127.0.0.1:18080:8080"
     volumes:
       - libsql-data:/var/lib/sqld
     environment:
-      - SQLD_NODE=primary
+      SQLD_NODE: primary
+      SQLD_MAX_CONCURRENT_CONNECTIONS: "512"
+      SQLD_MAX_CONCURRENT_REQUESTS: "1024"
     healthcheck:
       test:
         [
-          "CMD",
-          "sh",
-          "-c",
+          "CMD-SHELL",
           'perl -e ''use IO::Socket::INET; exit(IO::Socket::INET->new(PeerAddr=>"127.0.0.1:8080",Timeout=>1) ? 0 : 1);''',
         ]
       interval: 10s
@@ -138,36 +75,17 @@ services:
       resources:
         limits:
           memory: 512M
-        reservations:
-          memory: 256M
 
-  # One-shot schema migration. Runs before any app service starts; drizzle
-  # skips already-applied migrations, so it is safe on every deploy.
-  db-migrate:
-    image: ghcr.io/openstatushq/openstatus-db-migrate:latest
-    container_name: openstatus-db-migrate
-    networks:
-      - openstatus
-    environment:
-      - DATABASE_URL=${DATABASE_URL:-http://libsql:8080}
-      - DATABASE_AUTH_TOKEN=${DATABASE_AUTH_TOKEN:-}
-    depends_on:
-      libsql:
-        condition: service_healthy
-    # retries absorb transient DB races; exits 0 once migrations are applied
-    restart: on-failure:3
-    # pull on every deploy so a stale :latest image never skips new migrations
-    pull_policy: always
-
-  tinybird:
+  tinybird-local:
     image: tinybirdco/tinybird-local:latest
-    container_name: openstatus-tinybird
-    networks:
-      - openstatus
+    platform: linux/amd64
     ports:
-      - "7181:7181"
+      - "127.0.0.1:7181:7181"
     environment:
-      - COMPATIBILITY_MODE=1
+      COMPATIBILITY_MODE: "1"
+    volumes:
+      - tinybird-clickhouse-data:/var/lib/clickhouse
+      - tinybird-redis-data:/redis-data
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:7181/"]
       interval: 15s
@@ -175,27 +93,32 @@ services:
       retries: 5
       start_period: 20s
     restart: unless-stopped
-    deploy:
-      resources:
-        limits:
-          memory: 1G
-        reservations:
-          memory: 512M
 
-  # Core OpenStatus Services
+  db-migrate:
+    build:
+      context: .
+      dockerfile: packages/db/Dockerfile
+    image: openstatus/db-migrate:latest
+    pull_policy: build
+    environment:
+      <<: *openstatus-env
+      DATABASE_URL: http://libsql:8080
+    depends_on:
+      libsql:
+        condition: service_healthy
+    restart: on-failure:3
+
   workflows:
-    image: ghcr.io/openstatushq/openstatus-workflows:latest
-    container_name: openstatus-workflows
-    networks:
-      - openstatus
-    ports:
-      - "3000:3000"
+    build:
+      context: .
+      dockerfile: apps/workflows/Dockerfile
+    image: openstatus/workflows:latest
     volumes:
       - workflows-data:/app/data
     environment:
-      - DATABASE_URL=${DATABASE_URL:-http://libsql:8080}
-      - DATABASE_AUTH_TOKEN=${DATABASE_AUTH_TOKEN:-}
-      - PORT=${WORKFLOWS_PORT:-3000}
+      <<: *openstatus-env
+      DATABASE_URL: http://libsql:8080
+      PORT: "3000"
     depends_on:
       db-migrate:
         condition: service_completed_successfully
@@ -212,20 +135,16 @@ services:
       resources:
         limits:
           memory: 512M
-        reservations:
-          memory: 256M
 
   server:
-    image: ghcr.io/openstatushq/openstatus-server:latest
-    container_name: openstatus-server
-    networks:
-      - openstatus
-    ports:
-      - "3001:3000"
+    build:
+      context: .
+      dockerfile: apps/server/Dockerfile
+    image: openstatus/server:latest
     environment:
-      - DATABASE_URL=${DATABASE_URL:-http://libsql:8080}
-      - DATABASE_AUTH_TOKEN=${DATABASE_AUTH_TOKEN:-}
-      - PORT=${SERVER_PORT:-3000}
+      <<: *openstatus-env
+      DATABASE_URL: http://libsql:8080
+      PORT: "3000"
     depends_on:
       db-migrate:
         condition: service_completed_successfully
@@ -244,21 +163,19 @@ services:
       resources:
         limits:
           memory: 512M
-        reservations:
-          memory: 256M
 
+  # Ingest server: receives probe results, writes Tinybird, forwards status changes.
   private-location:
-    image: ghcr.io/openstatushq/openstatus-private-location:latest
-    container_name: openstatus-private-location
-    networks:
-      - openstatus
-    ports:
-      - "8083:8080"
+    build:
+      context: apps/private-location
+      dockerfile: Dockerfile
+    image: openstatus/private-location:latest
     environment:
-      - DB_URL=${DATABASE_URL:-http://libsql:8080}
-      - TINYBIRD_URL=${TINYBIRD_URL:-http://tinybird:7181}
-      - GIN_MODE=release
-      - PORT=${PRIVATE_LOCATION_PORT:-8080}
+      <<: *openstatus-env
+      DB_URL: http://libsql:8080
+      WORKFLOWS_URL: http://workflows:3000
+      GIN_MODE: release
+      PORT: "8080"
     depends_on:
       server:
         condition: service_healthy
@@ -273,50 +190,26 @@ services:
       resources:
         limits:
           memory: 256M
-        reservations:
-          memory: 128M
 
-  checker:
-    image: ghcr.io/openstatushq/openstatus-checker:latest
-    container_name: openstatus-checker
-    networks:
-      - openstatus
-    ports:
-      - "8082:8080"
-    environment:
-      - DATABASE_URL=${DATABASE_URL:-http://libsql:8080}
-      - DATABASE_AUTH_TOKEN=${DATABASE_AUTH_TOKEN:-}
-      - PORT=${CHECKER_PORT:-8080}
-    depends_on:
-      server:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
-      interval: 15s
-      timeout: 10s
-      retries: 3
-      start_period: 30s
-    restart: unless-stopped
-    deploy:
-      resources:
-        limits:
-          memory: 256M
-        reservations:
-          memory: 128M
-
+  # Admin UI — LAN only. Do NOT assign a domain to this service in Coolify.
   dashboard:
-    image: ghcr.io/openstatushq/openstatus-dashboard:latest
-    container_name: openstatus-dashboard
-    networks:
-      - openstatus
+    build:
+      context: .
+      dockerfile: apps/dashboard/Dockerfile
+    image: openstatus/dashboard:latest
     ports:
       - "3002:3000"
     environment:
-      - DATABASE_URL=${DATABASE_URL:-http://libsql:8080}
-      - DATABASE_AUTH_TOKEN=${DATABASE_AUTH_TOKEN:-}
-      - PORT=${DASHBOARD_PORT:-3000}
-      - HOSTNAME=${DASHBOARD_HOSTNAME:-0.0.0.0}
-      - AUTH_TRUST_HOST=${DASHBOARD_AUTH_TRUST_HOST:-true}
+      <<: *openstatus-env
+      DATABASE_URL: http://libsql:8080
+      PORT: "3000"
+      HOSTNAME: 0.0.0.0
+      AUTH_TRUST_HOST: "true"
+      # Without this Auth.js builds redirects from the bind address (0.0.0.0:3000).
+      AUTH_URL: ${NEXT_PUBLIC_URL:?}
+      # "Sign in with GitHub" (Auth.js reads these automatically). Empty = button errors.
+      AUTH_GITHUB_ID: ${AUTH_GITHUB_ID:-}
+      AUTH_GITHUB_SECRET: ${AUTH_GITHUB_SECRET:-}
     depends_on:
       db-migrate:
         condition: service_completed_successfully
@@ -327,7 +220,7 @@ services:
       server:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3000/"]
+      test: ["CMD-SHELL", "curl -f http://localhost:3000/ || exit 1"]
       interval: 15s
       timeout: 10s
       retries: 3
@@ -337,23 +230,20 @@ services:
       resources:
         limits:
           memory: 512M
-        reservations:
-          memory: 256M
 
+  # Public page — the ONLY service that gets a domain in Coolify (container port 3000).
   status-page:
-    image: ghcr.io/openstatushq/openstatus-status-page:latest
-    container_name: openstatus-status-page
-    networks:
-      - openstatus
-    ports:
-      - "3003:3000"
+    build:
+      context: .
+      dockerfile: apps/status-page/Dockerfile
+    image: openstatus/status-page:latest
     environment:
-      - DATABASE_URL=${DATABASE_URL:-http://libsql:8080}
-      - DATABASE_AUTH_TOKEN=${DATABASE_AUTH_TOKEN:-}
-      - PORT=${STATUS_PAGE_PORT:-3000}
-      - HOSTNAME=${STATUS_PAGE_HOSTNAME:-0.0.0.0}
-      - AUTH_TRUST_HOST=${STATUS_PAGE_AUTH_TRUST_HOST:-true}
-      - OPENSTATUS_API_URL=${OPENSTATUS_API_URL:-http://server:3000}
+      <<: *openstatus-env
+      DATABASE_URL: http://libsql:8080
+      PORT: "3000"
+      HOSTNAME: 0.0.0.0
+      AUTH_TRUST_HOST: "true"
+      OPENSTATUS_API_URL: http://server:3000
     depends_on:
       db-migrate:
         condition: service_completed_successfully
@@ -364,7 +254,7 @@ services:
       server:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3000/"]
+      test: ["CMD-SHELL", "curl -f http://localhost:3000/ || exit 1"]
       interval: 15s
       timeout: 10s
       retries: 3
@@ -374,11 +264,14 @@ services:
       resources:
         limits:
           memory: 512M
-        reservations:
-          memory: 256M
 
-# Coolify-specific labels for better management
-x-coolify-labels:
-  app: openstatus
-  version: "1.0"
-  environment: production
+  # Probe: runs the checks. Crash-loops until OPENSTATUS_KEY is set (step 6) — expected.
+  probe:
+    image: ghcr.io/openstatushq/private-location:latest
+    environment:
+      OPENSTATUS_KEY: ${OPENSTATUS_KEY:-}
+      OPENSTATUS_INGEST_URL: http://private-location:8080
+    depends_on:
+      private-location:
+        condition: service_healthy
+    restart: unless-stopped
