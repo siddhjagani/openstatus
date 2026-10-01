@@ -18,6 +18,7 @@ Stdlib only. Env:
   PORT                listen port (8025)
 """
 import base64
+import hmac
 import json
 import os
 import smtplib
@@ -124,7 +125,8 @@ class Handler(BaseHTTPRequestHandler):
         self._error(404, "not_found", "Not found")
 
     def do_POST(self):
-        if TOKEN and self.headers.get("Authorization") != f"Bearer {TOKEN}":
+        # Constant-time compare; TOKEN is guaranteed non-empty (checked at startup).
+        if not hmac.compare_digest(self.headers.get("Authorization", ""), f"Bearer {TOKEN}"):
             return self._error(401, "missing_api_key", "Invalid bridge token")
         if not (HOST and FROM_ADDRESS):
             return self._error(500, "application_error", "Bridge not configured: SMTP_HOST / SMTP_FROM_ADDRESS")
@@ -157,6 +159,8 @@ class Handler(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
+    if not TOKEN:  # fail closed: never run as an open mail relay
+        raise SystemExit("BRIDGE_TOKEN is required")
     port = int(os.environ.get("PORT", "8025"))
     log(f"resend-smtp-bridge listening on :{port} -> {HOST}:{PORT} ({SECURITY}) as {FROM_ADDRESS or '<unset>'}")
     ThreadingHTTPServer(("0.0.0.0", port), Handler).serve_forever()

@@ -30,6 +30,10 @@ x-openstatus-env: &openstatus-env
   # All OpenStatus email goes through the Resend SDK; this points it at the
   # local email-bridge service, which relays to your SMTP server.
   RESEND_BASE_URL: http://email-bridge:8025
+  # Email footer branding (packages/emails footer); empty address/support = omitted.
+  EMAIL_FOOTER_NAME: ${EMAIL_FOOTER_NAME:-Jwero}
+  EMAIL_FOOTER_ADDRESS: ${EMAIL_FOOTER_ADDRESS:-}
+  EMAIL_SUPPORT_EMAIL: ${EMAIL_SUPPORT_EMAIL:-}
   # Any placeholder (e.g. re_selfhost). SELF_HOST login never sends mail — the
   # magic link is printed to the dashboard container logs (">>> Magic Link: ...").
   RESEND_API_KEY: ${RESEND_API_KEY:?}
@@ -290,7 +294,7 @@ services:
       SMTP_USER: ${SMTP_USER:-}
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
       SMTP_FROM_ADDRESS: ${SMTP_FROM_ADDRESS:-}
-      SMTP_FROM_NAME: ${SMTP_FROM_NAME:-}
+      SMTP_FROM_NAME: ${SMTP_FROM_NAME:-Jwero Status}
       SMTP_REPLY_TO: ${SMTP_REPLY_TO:-}
     restart: unless-stopped
     deploy:

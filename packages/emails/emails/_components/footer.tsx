@@ -5,7 +5,13 @@ import { Link, Section, Text } from "react-email";
 
 import { colors, styles } from "./styles";
 
-export const POSTAL_ADDRESS = "122 Rue Amelot, 75011 Paris, France";
+// Self-hosted branding, read at send time on the server. Assigned to a variable
+// first so bundlers (deno bundle / esbuild) don't constant-fold the lookups.
+const processEnv: Record<string, string | undefined> =
+  typeof process !== "undefined" ? process.env : {};
+export const FOOTER_NAME = processEnv.EMAIL_FOOTER_NAME || "Jwero";
+export const POSTAL_ADDRESS = processEnv.EMAIL_FOOTER_ADDRESS || "";
+const SUPPORT_EMAIL = processEnv.EMAIL_SUPPORT_EMAIL || "";
 
 interface FooterLink {
   label: string;
@@ -54,13 +60,19 @@ export function Footer({
         </Text>
       ) : null}
       <Text style={{ ...line, margin: 0, color: colors.faint }}>
-        openstatus · {POSTAL_ADDRESS} ·{" "}
-        <Link
-          href="mailto:ping@openstatus.dev"
-          style={{ ...link, color: colors.faint }}
-        >
-          Support
-        </Link>
+        {FOOTER_NAME}
+        {POSTAL_ADDRESS ? ` · ${POSTAL_ADDRESS}` : null}
+        {SUPPORT_EMAIL ? (
+          <>
+            {" · "}
+            <Link
+              href={`mailto:${SUPPORT_EMAIL}`}
+              style={{ ...link, color: colors.faint }}
+            >
+              Support
+            </Link>
+          </>
+        ) : null}
       </Text>
     </Section>
   );
