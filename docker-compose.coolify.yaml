@@ -58,7 +58,10 @@ volumes:
 
 services:
   libsql:
-    image: ghcr.io/tursodatabase/libsql-server:latest
+    # Pinned sqld 0.24.33 + query-based health check (deploy/libsql).
+    build:
+      context: deploy/libsql
+    image: openstatus/libsql:0.24.33
     ports:
       - "127.0.0.1:18080:8080"
     volumes:
@@ -68,15 +71,12 @@ services:
       SQLD_MAX_CONCURRENT_CONNECTIONS: "512"
       SQLD_MAX_CONCURRENT_REQUESTS: "1024"
     healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          'perl -e ''use IO::Socket::INET; exit(IO::Socket::INET->new(PeerAddr=>"127.0.0.1:8080",Timeout=>1) ? 0 : 1);''',
-        ]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 10s
+      # SELECT 1 over HTTP, not just "port open" (sqld can jam with the port up).
+      test: ["CMD", "perl", "/usr/local/bin/libsql-healthcheck.pl"]
+      interval: 15s
+      timeout: 6s
+      retries: 4
+      start_period: 15s
     restart: unless-stopped
     deploy:
       resources:
