@@ -70,6 +70,10 @@ services:
       SQLD_NODE: primary
       SQLD_MAX_CONCURRENT_CONNECTIONS: "512"
       SQLD_MAX_CONCURRENT_REQUESTS: "1024"
+      # Compact the replication log at 10 MB or every 5 min. The 200 MB default let it
+      # reach 150 MB on ~1 MB of data and pinned sqld at ~450% CPU (jams, 2026-10).
+      SQLD_MAX_LOG_SIZE: "10"
+      SQLD_MAX_LOG_DURATION: "300"
     healthcheck:
       # SELECT 1 over HTTP, not just "port open" (sqld can jam with the port up).
       test: ["CMD", "perl", "/usr/local/bin/libsql-healthcheck.pl"]
