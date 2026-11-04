@@ -282,6 +282,8 @@ services:
     depends_on:
       private-location:
         condition: service_healthy
+    # Public resolvers: the host chain (OrbStack→Tailscale→ISP) intermittently SERVFAILs Azure Front Door's 5s-TTL names.
+    dns: [1.1.1.1, 8.8.8.8]
     restart: unless-stopped
 
   # Resend-API -> SMTP relay (deploy/resend-smtp-bridge). Rewrites OpenStatus's
